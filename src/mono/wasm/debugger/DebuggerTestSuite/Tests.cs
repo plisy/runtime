@@ -1517,7 +1517,7 @@ namespace DebuggerTests
 
                 AssertEqual("WriteLine", top_frame["functionName"]?.Value<string>(), "Expected to be in WriteLine method");
                 var script_id = top_frame["functionLocation"]["scriptId"].Value<string>();
-                Assert.Matches ("^dotnet://(mscorlib|System\\.Console)\\.dll/Console.cs", scripts[script_id]);
+                Assert.Matches("^dotnet://(mscorlib|System\\.Console)\\.dll/Console.cs", scripts[script_id]);
             });
         }
 
@@ -1575,7 +1575,7 @@ namespace DebuggerTests
                 var bp2 = await SetBreakpoint("dotnet://debugger-test.dll/debugger-test.cs", 12, 8);
                 var pause_location = await EvaluateAndCheck(
                     "window.setTimeout(function() { invoke_add(); invoke_add()}, 1);",
-                    "dotnet://debugger-test.dll/debugger-test.cs",  10, 8,
+                    "dotnet://debugger-test.dll/debugger-test.cs", 10, 8,
                     "IntAdd");
 
                 Assert.Equal("other", pause_location["reason"]?.Value<string>());
@@ -1604,7 +1604,7 @@ namespace DebuggerTests
                 var bp2 = await SetBreakpoint("dotnet://debugger-test.dll/debugger-test.cs", 12, 8);
                 var pause_location = await EvaluateAndCheck(
                     "window.setTimeout(function() { invoke_add(); invoke_add()}, 1);",
-                    "dotnet://debugger-test.dll/debugger-test.cs",  10, 8,
+                    "dotnet://debugger-test.dll/debugger-test.cs", 10, 8,
                     "IntAdd");
 
                 Assert.Equal("other", pause_location["reason"]?.Value<string>());
@@ -1632,7 +1632,7 @@ namespace DebuggerTests
                 var bp2 = await SetBreakpoint("dotnet://debugger-test.dll/debugger-test.cs", 12, 8);
                 var pause_location = await EvaluateAndCheck(
                     "window.setTimeout(function() { invoke_add(); invoke_add(); invoke_add(); invoke_add()}, 1);",
-                    "dotnet://debugger-test.dll/debugger-test.cs",  10, 8,
+                    "dotnet://debugger-test.dll/debugger-test.cs", 10, 8,
                     "IntAdd");
 
                 Assert.Equal("other", pause_location["reason"]?.Value<string>());
@@ -1643,9 +1643,51 @@ namespace DebuggerTests
                 await SendCommandAndCheck(JObject.FromObject(new { }), "Debugger.resume", "dotnet://debugger-test.dll/debugger-test.cs", 12, 8, "IntAdd");
                 bp = await SetBreakpoint("dotnet://debugger-test.dll/debugger-test.cs", 10, 8);
                 await SendCommandAndCheck(JObject.FromObject(new { }), "Debugger.resume", "dotnet://debugger-test.dll/debugger-test.cs", 10, 8, "IntAdd");
-                
+
             });
         }
+        public async Task DebugLazyLoadedAssembly()
+        {
+            var insp = new Inspector();
+            var scripts = SubscribeToScripts(insp);
+            await Ready();
+            await insp.Ready(async (cli, token) =>
+            {
+                var tcs = new TaskCompletionSource<bool>();
+                insp.On("Debugger.resumed", async (args, token) =>
+                {
+                    tcs.SetResult(true);
+                });
+
+                ctx = new DebugTestContext(cli, insp, token, scripts);
+                var eval_req = JObject.FromObject(new
+                {
+                    expression = "window.setTimeout(function() { invoke_load_lazy_assembly(); }, 1);",
+                });
+                var eval_res = await cli.SendCommand("Runtime.evaluate", eval_req, token);
+                Assert.True(eval_res.IsOk);
+
+                await Task.WhenAny(tcs.Task, Task.Delay(4000));
+                Assert.Contains("dotnet://lazy-debugger-test.dll/lazy-debugger-test.cs", scripts.Values);
+
+                // await EvaluateAndCheck(
+                //     "window.setTimeout(function() { invoke_static_method('[lazy-debugger-test] LazyMath:IntAdd', 5, 10); })",
+                //     "dotnet://lazy-debugger-test.dll/lazy-debugger-test.cs", 11, 8,
+                //     "IntAdd",
+                //     wait_for_event_fn: async (pause_location) =>
+                //     {
+                //         var locals = await GetProperties(pause_location["callFrames"][0]["callFrameId"].Value<string>());
+                //         await CheckProps(locals, new
+                //         {
+                //             a = TNumber(5),
+                //             b = TNumber(10),
+                //             c = TNumber(15)
+                //         }, "locals");
+                //     });
+
+            });
+        }
+
         //TODO add tests covering basic stepping behavior as step in/out/over
     }
 }
